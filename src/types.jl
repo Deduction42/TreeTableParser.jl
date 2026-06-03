@@ -126,6 +126,7 @@ function add_child!(parentrow::PR, sourcerow::AbstractAtomicRow) where {PR<:Abst
         add_child!(get_children(parentrow), sourcerow)
         return nothing
     else
+        validate_keys(get_children(parentrow)) #Ensure children are unique before moving on
         return PR(sourcerow)
     end
 end
@@ -143,3 +144,8 @@ function add_child!(siblings::AbstractVector{<:AbstractTreeRow}, sourcerow::Abst
     return nothing
 end
 
+function validate_keys(v::AbstractVector{<:AbstractTreeRow})
+    ids = (get_key(r) for r in v)
+    allunique(ids) || error("ValidationError: Keys are not unique $(collect(ids))")
+    return v 
+end
