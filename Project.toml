@@ -1,4 +1,4 @@
-name = "TableTreeParser"
+name = "TreeTableParser"
 uuid = "d8df0cc3-8b12-447e-a699-03c61d4dd079"
 version = "1.0.0-DEV"
 authors = ["Ruben Gonzalez <ruben.carbonbased@gmail.com> and contributors"]

@@ -1,13 +1,56 @@
 using Revise
-using TableTreeParser
+using TreeTableParser
 using CSV
+using Tables 
 
+import TreeTableParser: key_field, child_field
 
+#========================================================================================================
+test code
+========================================================================================================#
+@kwdef struct MeasTableRow <: AbstractAtomicRow 
+    id :: String 
+    location :: String 
+    type :: String 
+    port :: String 
+    units :: String 
+    avg :: Float64 
+    min :: Float64 
+    max :: Float64 
+    tolerance :: Float64 
+    tag :: Union{String,Missing} 
+end
+key_field(r::MeasTableRow) = :id
 
+@kwdef struct TagRow <: AbstractAtomicRow 
+    port :: String 
+    units :: String 
+    avg :: Float64
+    min :: Float64
+    max :: Float64 
+    tolerance :: Float64 
+    tag :: Union{String,Missing} 
+end
+key_field(r::TagRow) = :port
 
+@kwdef struct MeasRow <: AbstractParentRow 
+    id :: String 
+    location :: String
+    type :: String 
+    ports :: Vector{TagRow}
+end
+MeasRow(row::MeasTableRow) = MeasRow(id=row.id, location=row.location, type=row.type, ports=[TagRow(row)])
+key_field(r::MeasRow) = :id 
+child_field(r::MeasRow) = :ports
 
 using Test
 
 @testset "TableTreeParser.jl" begin
-    # Write your tests here.
+    rawtable = CSV.File(joinpath(@__DIR__,"tree_table.csv"))
+    initrow = MeasTableRow(rawtable[1])
+    meastable = collapse(MeasRow, initrow, rawtable)
+
+    @test length(meastable[1].ports) == 2 
+    @test length(meastable[2].ports) == 1
+    @test ismissing(meastable[1].ports[end].tag)
 end

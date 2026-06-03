@@ -1,7 +1,6 @@
 using Tables 
 
-import Tables.AbstractRow
-import Tables.AbstractRowTable
+import Tables: AbstractRow, AbstractRowTable, rows
 import Base.Fix1
 import Base.eachrow
 
@@ -34,15 +33,15 @@ Create a collapsed version of `table`, with row type `RT` that is constructed by
 """
 function collapse(::Type{RT}, initrow::AbstractTreeRow, table::AbstractRowTable) where {RT<:AbstractTreeRow}
     sourcerow = Ref(initrow)
-    rows = [RT(initrow)]
+    tablerows = [RT(initrow)]
     
     for (ii, row) in enumerate(Tables.rows(table))
         ii == 1 && continue
         sourcerow[] = forward_fill(row, sourcerow[])
-        add_child!(rows, sourcerow[])
+        add_child!(tablerows, sourcerow[])
     end
 
-    return rows
+    return tablerows
 end
 
 #Default options for getting ids and children 
@@ -144,46 +143,3 @@ function add_child!(siblings::AbstractVector{<:AbstractTreeRow}, sourcerow::Abst
     return nothing
 end
 
-#========================================================================================================
-test code
-========================================================================================================#
-@kwdef struct MeasTableRow <: AbstractAtomicRow 
-    id :: String 
-    location :: String 
-    type :: String 
-    port :: String 
-    units :: String 
-    avg :: Float64 
-    min :: Float64 
-    max :: Float64 
-    tolerance :: Float64 
-    tag :: Union{String,Missing} 
-end
-key_field(r::MeasTableRow) = :id
-
-@kwdef struct TagRow <: AbstractAtomicRow 
-    port :: String 
-    units :: String 
-    avg :: Float64
-    min :: Float64
-    max :: Float64 
-    tolerance :: Float64 
-    tag :: Union{String,Missing} 
-end
-key_field(r::TagRow) = :port
-
-@kwdef struct MeasRow <: AbstractParentRow 
-    id :: String 
-    location :: String
-    type :: String 
-    ports :: Vector{TagRow}
-end
-MeasRow(row::MeasTableRow) = MeasRow(id=row.id, location=row.location, type=row.type, ports=[TagRow(row)])
-key_field(r::MeasRow) = :id 
-child_field(r::MeasRow) = :ports
-
-using CSV 
-table = CSV.File(joinpath(@__DIR__,"tree_table.csv"))
-initrow = MeasTableRow(first(Tables.rows(table)))
-
-collapsed = collapse(MeasRow, initrow, table)
