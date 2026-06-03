@@ -41,7 +41,7 @@ function collapse(::Type{RT}, initrow::AbstractTreeRow, table::AbstractRowTable)
         add_child!(tablerows, sourcerow[])
     end
 
-    return tablerows
+    return validate_keys(tablerows)
 end
 
 #Default options for getting ids and children 
