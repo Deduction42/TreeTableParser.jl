@@ -1,7 +1,9 @@
 using Tables 
 
 import Tables.AbstractRow
-
+import Tables.AbstractRowTable
+import Base.Fix1
+import Base.eachrow
 
 abstract type AbstractTreeRow <: AbstractRow end 
 abstract type AbstractAtomicRow <: AbstractTreeRow end
@@ -10,6 +12,11 @@ abstract type AbstractParentRow <: AbstractTreeRow end
 Tables.columnnames(row::T) where T <: AbstractTreeRow = fieldnames(T) 
 Tables.getcolumn(row::AbstractTreeRow, ii::Int64) = getfield(row, ii)
 Tables.getcolumn(row::AbstractTreeRow, fn::Symbol) = getfield(row, fn)
+
+#Default construction
+function (::Type{R})(row::AbstractRow) where R <: AbstractAtomicRow
+    return R(map(Fix1(getproperty, row), fieldnames(R))...)
+end
 
 #Forward Fill option on missing 
 function (::Type{R})(fillfunc, row::AbstractRow, init::AbstractAtomicRow) where R<:AbstractAtomicRow 
@@ -20,6 +27,23 @@ function (::Type{R})(row::AbstractRow, init::AbstractAtomicRow) where R<:Abstrac
     return R(forward_fill, row, init)
 end
 
+"""
+    collapse(::Type{RT}, initrow::AbstractTreeRow, table::AbstractRowTable)
+
+Create a collapsed version of `table`, with row type `RT` that is constructed by source type `ST`
+"""
+function collapse(::Type{RT}, initrow::AbstractTreeRow, table::AbstractRowTable) where {RT<:AbstractTreeRow}
+    sourcerow = Ref(initrow)
+    rows = [RT(initrow)]
+    
+    for (ii, row) in enumerate(Tables.rows(table))
+        ii == 1 && continue
+        sourcerow[] = forward_fill(row, sourcerow[])
+        add_child!(rows, sourcerow[])
+    end
+
+    return rows
+end
 
 #Default options for getting ids and children 
 """
@@ -72,16 +96,58 @@ function forward_fill(fn::Symbol, row::AbstractRow, init::R) where R <: Abstract
     throw(ArgumentError("Row value '$(rowval)' is incompaatible with field :$(fn) (which has type $(fieldtype(R, fn)))"))
 end
 
+function forward_fill(row::AbstractRow, init::RT) where RT <: AbstractAtomicRow
+    return RT( map(fn->forward_fill(fn, row, init), fieldnames(RT))... )
+end
+
+"""
+    is_duplicate(newrow::RN, oldrow::RO) where {RN <: AbstractParentRow, RO <: AbstractTreeRow}
+
+Checks the non-special fields of `newrow` to see if they match the fields of `oldrow`. If the fieldnames of `newrow` do not  
+match the names and types of `oldrow`, you will need to overload this function to convert `oldrow` to the same type as `newrow`.
+"""
+function isduplicate(newrow::RN, oldrow::RO) where {RN <: AbstractParentRow, RO <: AbstractTreeRow}
+    special_field(fn::Symbol) = (fn==key_field(newrow))|(fn==child_field(newrow))
+    compatible_vals(fn::Symbol) = special_field(fn) ? true : newrow[fn] == oldrow[fn]
+
+    if get_key(newrow) != get_key(oldrow) #Different keys means they are not duplicate
+        return false
+    end 
+
+    #If the keys are the same, then all non-special rows must be identical 
+    for fn in fieldnames(RN)
+        compatible_vals(fn) || error("Rows with duplicate ids must have identical values for a given field. Field $(fn) contained $(oldrow[fn] => newrow[fn])")
+    end
+
+    return true 
+end
+
+function add_child!(parentrow::PR, sourcerow::AbstractAtomicRow) where {PR<:AbstractParentRow}
+    if isduplicate(parentrow, sourcerow)
+        add_child!(get_children(parentrow), sourcerow)
+        return nothing
+    else
+        return PR(sourcerow)
+    end
+end
+
+function add_child!(parentrow::AR, sourcerow::AbstractAtomicRow) where {AR<:AbstractAtomicRow}
+    return AR(sourcerow)
+end
+
+function add_child!(siblings::AbstractVector{<:AbstractTreeRow}, sourcerow::AbstractAtomicRow)
+    newsibling = add_child!(siblings[end], sourcerow)
+
+    isnothing(newsibling) && return nothing
+    push!(siblings, newsibling)
+
+    return nothing
+end
 
 #========================================================================================================
 test code
 ========================================================================================================#
-import Base.Fix1
-using CSV 
-table = CSV.File(joinpath(@__DIR__,"tree_table.csv"))
-
-
-struct RawMeasRow <: AbstractAtomicRow 
+@kwdef struct MeasTableRow <: AbstractAtomicRow 
     id :: String 
     location :: String 
     type :: String 
@@ -93,11 +159,31 @@ struct RawMeasRow <: AbstractAtomicRow
     tolerance :: Float64 
     tag :: Union{String,Missing} 
 end
+key_field(r::MeasTableRow) = :id
 
-function RawMeasRow(row::Tables.AbstractRow)
-    return RawMeasRow( map(Fix1(getproperty, row), fieldnames(RawMeasRow))... )
+@kwdef struct TagRow <: AbstractAtomicRow 
+    port :: String 
+    units :: String 
+    avg :: Float64
+    min :: Float64
+    max :: Float64 
+    tolerance :: Float64 
+    tag :: Union{String,Missing} 
 end
+key_field(r::TagRow) = :port
 
-row1 = RawMeasRow(table[1])
-row2 = RawMeasRow(table[2], row1)
-row3 = RawMeasRow(table[3], row2)
+@kwdef struct MeasRow <: AbstractParentRow 
+    id :: String 
+    location :: String
+    type :: String 
+    ports :: Vector{TagRow}
+end
+MeasRow(row::MeasTableRow) = MeasRow(id=row.id, location=row.location, type=row.type, ports=[TagRow(row)])
+key_field(r::MeasRow) = :id 
+child_field(r::MeasRow) = :ports
+
+using CSV 
+table = CSV.File(joinpath(@__DIR__,"tree_table.csv"))
+initrow = MeasTableRow(first(Tables.rows(table)))
+
+collapsed = collapse(MeasRow, initrow, table)
