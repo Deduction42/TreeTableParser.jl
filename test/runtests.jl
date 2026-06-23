@@ -20,7 +20,6 @@ test code
     tolerance :: Float64 
     tag :: Union{String,Missing} 
 end
-key_field(r::MeasTableRow) = :id
 
 @kwdef struct TagRow <: AbstractAtomicRow 
     port :: String 
@@ -31,7 +30,6 @@ key_field(r::MeasTableRow) = :id
     tolerance :: Float64 
     tag :: Union{String,Missing} 
 end
-key_field(r::TagRow) = :port
 
 @kwdef struct MeasRow <: AbstractParentRow 
     id :: String 
@@ -39,16 +37,14 @@ key_field(r::TagRow) = :port
     type :: String 
     ports :: Vector{TagRow}
 end
-MeasRow(row::MeasTableRow) = MeasRow(id=row.id, location=row.location, type=row.type, ports=[TagRow(row)])
-key_field(r::MeasRow) = :id 
-child_field(r::MeasRow) = :ports
+MeasRow(row::Tables.AbstractRow) = MeasRow(id=row.id, location=row.location, type=row.type, ports=[TagRow(row)])
 
 using Test
 
 @testset "TableTreeParser.jl" begin
     rawtable = CSV.File(joinpath(@__DIR__,"tree_table.csv"))
     initrow = MeasTableRow(rawtable[1])
-    meastable = collapse(MeasRow, initrow, rawtable)
+    meastable = TreeTable{MeasRow}(rawtable)
 
     @test length(meastable[1].ports) == 2 
     @test length(meastable[2].ports) == 1
